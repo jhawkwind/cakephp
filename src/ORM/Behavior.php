@@ -54,7 +54,7 @@ use ReflectionMethod;
  *   Fired before each find operation. By stopping the event and supplying a
  *   return value you can bypass the find operation entirely. Any changes done
  *   to the $query instance will be retained for the rest of the find. The
- *   $primary parameter indicates whether this is the root query,
+ *   $primary parameter indicates whether this is the root query
  *   or an associated query.
  *
  * - `buildValidator(EventInterface $event, Validator $validator, string $name)`
@@ -91,7 +91,7 @@ use ReflectionMethod;
  * event fired from your Table classes including custom application
  * specific ones.
  *
- * You can set the priority of a behaviors callbacks by using the
+ * You can set the priority of behaviors' callbacks by using the
  * `priority` setting when attaching a behavior. This will set the
  * priority for all the callbacks a behavior provides.
  *
@@ -213,9 +213,7 @@ class Behavior implements EventListenerInterface
         $indexed = array_flip($defaults[$key]);
         $indexedCustom = array_flip($config[$key]);
         foreach ($indexed as $method => $alias) {
-            if (!isset($indexedCustom[$method])) {
-                $indexedCustom[$method] = $alias;
-            }
+            $indexedCustom[$method] ??= $alias;
         }
         $this->setConfig($key, array_flip($indexedCustom), false);
         unset($config[$key]);

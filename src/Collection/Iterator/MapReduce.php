@@ -31,8 +31,7 @@ use Traversable;
 class MapReduce implements IteratorAggregate
 {
     /**
-     * Holds the shuffled results that were emitted from the map
-     * phase
+     * Holds the shuffled results emitted from the map phase
      *
      * @var array
      */
@@ -139,7 +138,7 @@ class MapReduce implements IteratorAggregate
     }
 
     /**
-     * Appends a new record to the bucket labelled with $key, usually as a result
+     * Appends a new record to the bucket labeled with $key, usually as a result
      * of mapping a single record from the original data.
      *
      * @param mixed $val The record itself to store in the bucket
@@ -150,7 +149,7 @@ class MapReduce implements IteratorAggregate
     public function emitIntermediate(mixed $val, mixed $bucket, mixed $key = null): void
     {
         if ($key === null) {
-            $this->_intermediate[$bucket][] = $val;
+            $this->_intermediate[$bucket ?? ''][] = $val;
 
             return;
         }

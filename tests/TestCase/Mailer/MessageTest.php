@@ -37,7 +37,7 @@ class MessageTest extends TestCase
      */
     protected $message;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -1310,7 +1310,6 @@ HTML;
         $message = new Message();
         $reflection = new ReflectionClass($message);
         $property = $reflection->getProperty('serializableProperties');
-        $property->setAccessible(true);
         $serializableProperties = $property->getValue($message);
 
         $message

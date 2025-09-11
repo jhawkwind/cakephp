@@ -55,14 +55,15 @@ use Cake\ORM\Query\UpdateQuery;
 use Cake\ORM\ResultSet;
 use Cake\ORM\RulesChecker;
 use Cake\ORM\Table;
+use Cake\ORM\TableRegistry;
 use Cake\TestSuite\TestCase;
 use Cake\Utility\Hash;
 use Cake\Validation\Validator;
 use Exception;
 use InvalidArgumentException;
+use Mockery;
 use PDOException;
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\WithoutErrorHandler;
 use RuntimeException;
 use TestApp\Model\Entity\Article;
 use TestApp\Model\Entity\ArticlesTag;
@@ -120,7 +121,7 @@ class TableTest extends TestCase
      */
     protected $articlesTypeMap;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         $this->connection = ConnectionManager::get('test');
@@ -205,7 +206,7 @@ class TableTest extends TestCase
     /**
      * teardown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         $this->clearPlugins();
@@ -625,7 +626,6 @@ class TableTest extends TestCase
      * @return void
      * @deprecated
      */
-    #[WithoutErrorHandler]
     public function testFindAllOldStyleOptionsArray(): void
     {
         $this->deprecated(function (): void {
@@ -1169,6 +1169,24 @@ class TableTest extends TestCase
         $this->assertEquals($expected, $result);
     }
 
+    public function testUpdateExpression(): void
+    {
+        $table = new Table([
+            'table' => 'counter_cache_users',
+            'connection' => $this->connection,
+        ]);
+        $entity = new Entity([
+            'name' => 'test',
+            'post_count' => 0,
+            'comment_count' => 0,
+            'posts_published' => 0,
+        ]);
+        $table->save($entity);
+        $expression = new QueryExpression(['post_count = post_count + 1']);
+        $result = $table->updateAll([$expression], ['id' => 1]);
+        $this->assertNotEmpty($result);
+    }
+
     /**
      * Test that exceptions from the Query bubble up.
      */
@@ -1297,7 +1315,30 @@ class TableTest extends TestCase
         $this->assertSame(2, $author->id);
     }
 
-    #[WithoutErrorHandler]
+    /**
+     * https://github.com/cakephp/cakephp/issues/18716
+     */
+    public function testChangedFindWithOverlappingArgs(): void
+    {
+        $query = $this->getTableLocator()->get('Authors')
+            ->find('withIdArgument', 2)
+            ->find('custom', id: [1, 2], second: false);
+
+        $this->assertSame([2, 'id' => [1, 2], 'second' => false], $query->getOptions());
+
+        $query = $this->getTableLocator()->get('Authors')
+            ->find('withIdArgument', id: 2)
+            ->find('custom', second: true);
+
+        $this->assertSame(['id' => 2, 'second' => true], $query->getOptions());
+
+        $query = $this->getTableLocator()->get('Authors')
+            ->find('withIdArgument', id: 2)
+            ->find('custom2', id: [2, 3], second: true);
+
+        $this->assertSame(['id' => [2, 3], 'second' => true], $query->getOptions());
+    }
+
     public function testFindTypedParameterCompatibility(): void
     {
         $articles = $this->fetchTable('Articles');
@@ -1607,7 +1648,6 @@ class TableTest extends TestCase
     /**
      * Tests find(list) with backwards compatibile options
      */
-    #[WithoutErrorHandler]
     public function testFindListArrayOptions(): void
     {
         $table = new Table([
@@ -1688,7 +1728,6 @@ class TableTest extends TestCase
      * @return void
      * @deprecated
      */
-    #[WithoutErrorHandler]
     public function testFindListWithArray(): void
     {
         $this->deprecated(function (): void {
@@ -2298,8 +2337,7 @@ class TableTest extends TestCase
         ]);
         $listener = function (EventInterface $event, $entity) {
             $event->stopPropagation();
-
-            return $entity;
+            $event->setResult($entity);
         };
         $table->getEventManager()->on('Model.beforeSave', $listener);
         $this->assertSame($data, $table->save($data));
@@ -2330,7 +2368,7 @@ class TableTest extends TestCase
     public function testBeforeSaveException(): void
     {
         $this->expectException(AssertionError::class);
-        $this->expectExceptionMessage('The beforeSave callback must return `false` or `EntityInterface` instance. Got `int` instead.');
+        $this->expectExceptionMessage('The result for the `Model.beforeSave` event must be `false` or `EntityInterface` instance. Got `int` instead.');
 
         $table = $this->getTableLocator()->get('users');
         $data = new Entity([
@@ -2340,8 +2378,7 @@ class TableTest extends TestCase
         ]);
         $listener = function (EventInterface $event, $entity) {
             $event->stopPropagation();
-
-            return 1;
+            $event->setResult(1);
         };
         $table->getEventManager()->on('Model.beforeSave', $listener);
         $table->save($data);
@@ -2849,7 +2886,7 @@ class TableTest extends TestCase
         $entity = $table->get(1);
 
         $entity->setAccess('*', true);
-        $entity->set($entity->toArray());
+        $entity->patch($entity->toArray());
         $this->assertSame($entity, $table->save($entity));
     }
 
@@ -3052,6 +3089,53 @@ class TableTest extends TestCase
         $this->expectException(PersistenceFailedException::class);
 
         $table->saveManyOrFail($entities);
+    }
+
+    public function testSaveWithBuildRulesFailWithErrorMessage(): void
+    {
+        $Articles = new class extends Table {
+            public function initialize(array $config): void
+            {
+                $this->setAlias('Articles');
+                $this->setTable('articles');
+                $this->hasMany('Comments');
+            }
+        };
+        $Comments = new class extends Table {
+            public function initialize(array $config): void
+            {
+                $this->setAlias('Comments');
+                $this->setTable('comments');
+            }
+
+            public function buildRules(RulesChecker $rules): RulesChecker
+            {
+                return $rules->add(function () {
+                    return 'Xyz';
+                });
+            }
+        };
+        TableRegistry::getTableLocator()->set('Comments', $Comments);
+
+        $article = $Articles->newEntity([
+            'title' => 'First Article',
+            'body' => 'First Article Body',
+            'published' => 'Y',
+            'comments' => [
+                '_ids' => [1],
+            ],
+        ]);
+
+        $result = $Articles->save($article, ['associated' => ['Comments']]);
+        $this->assertFalse($result);
+
+        // There should be errors here, due to comment not being savable.
+        $errors = $article->getErrors();
+        $this->assertNotEmpty($errors);
+        $this->assertArrayHasKey('comments', $errors);
+        $this->assertArrayHasKey(0, $errors['comments']);
+        $this->assertArrayHasKey('_rule', $errors['comments'][0]);
+        $this->assertSame(['Xyz'], $errors['comments'][0]['_rule']);
     }
 
     /**
@@ -3262,32 +3346,40 @@ class TableTest extends TestCase
         $entity = new Entity(['id' => 1, 'name' => 'mark']);
         $options = new ArrayObject(['atomic' => true, 'checkRules' => false, '_primary' => true]);
 
-        $mock = $this->getMockBuilder(EventManager::class)->getMock();
+        $mock = Mockery::mock(EventManager::class);
 
-        $mock->expects($this->once())
-            ->method('on');
+        $mock->shouldReceive('on');
 
-        $mock->expects($this->exactly(4))
-            ->method('dispatch')
-            ->with(
-                ...self::withConsecutive(
-                    [$this->anything()],
-                    [$this->callback(function (EventInterface $event) use ($entity, $options) {
-                        return $event->getName() === 'Model.beforeDelete' &&
-                        $event->getData() == ['entity' => $entity, 'options' => $options];
-                    })],
-                    [
-                    $this->callback(function (EventInterface $event) use ($entity, $options) {
-                        return $event->getName() === 'Model.afterDelete' &&
-                            $event->getData() == ['entity' => $entity, 'options' => $options];
-                    }),
-                    ],
-                    [$this->callback(function (EventInterface $event) use ($entity, $options) {
-                        return $event->getName() === 'Model.afterDeleteCommit' &&
-                        $event->getData() == ['entity' => $entity, 'options' => $options];
-                    })],
-                ),
-            );
+        $mock->shouldReceive('dispatch')
+            ->withAnyArgs()
+            ->once();
+
+        $mock->shouldReceive('dispatch')
+            ->withArgs(function (EventInterface $event) use ($entity, $options) {
+                $this->assertSame('Model.beforeDelete', $event->getName());
+                $this->assertEquals(['entity' => $entity, 'options' => $options], $event->getData());
+
+                return true;
+            })
+            ->once();
+
+        $mock->shouldReceive('dispatch')
+            ->withArgs(function (EventInterface $event) use ($entity, $options) {
+                $this->assertSame('Model.afterDelete', $event->getName());
+                $this->assertEquals(['entity' => $entity, 'options' => $options], $event->getData());
+
+                return true;
+            })
+            ->once();
+
+        $mock->shouldReceive('dispatch')
+            ->withArgs(function (EventInterface $event) use ($entity, $options) {
+                $this->assertSame('Model.afterDeleteCommit', $event->getName());
+                $this->assertEquals(['entity' => $entity, 'options' => $options], $event->getData());
+
+                return true;
+            })
+            ->once();
 
         $table = $this->getTableLocator()->get('users', ['eventManager' => $mock]);
         $entity->setNew(false);
@@ -3480,6 +3572,34 @@ class TableTest extends TestCase
         $validator = $table->getValidator('Behavior');
         $set = $validator->field('name');
         $this->assertArrayHasKey('behaviorRule', $set);
+    }
+
+    /**
+     * https://github.com/cakephp/cakephp/issues/18273
+     */
+    public function testValidatorWithMethodInBehavior(): void
+    {
+        $table = new Table();
+        $table->addBehavior('Validation');
+
+        $table->getValidator('default')->add(
+            'name',
+            'customValidationRule',
+            ['rule' => 'customValidationRule', 'provider' => 'table'],
+        );
+
+        $result = $table->getValidator('default')->validate([
+            'name' => 'test',
+        ], true);
+
+        $this->assertSame(
+            [
+                'name' => [
+                    'customValidationRule' => 'The provided value is invalid',
+                ],
+            ],
+            $result,
+        );
     }
 
     /**
@@ -4281,7 +4401,7 @@ class TableTest extends TestCase
 
         $article = $table->find('all')->where(['id' => 1])->contain(['Tags'])->first();
         $this->assertEquals($article->tags[2]->id, $tags[0]->id);
-        $this->assertEqualsCanonicalizing($article->tags[3], $tags[1]);
+        $this->assertEqualsCanonicalizing($article->tags[3]->toArray(), $tags[1]->toArray());
     }
 
     /**
@@ -4731,7 +4851,7 @@ class TableTest extends TestCase
 
         $this->assertTrue($authors->Articles->replace($author, $newArticles));
         $this->assertCount(count($newArticles), $author->articles);
-        $this->assertEquals((new Collection($newArticles))->extract('title'), (new Collection($author->articles))->extract('title'));
+        $this->assertEquals((new Collection($newArticles))->extract('title')->toArray(), (new Collection($author->articles))->extract('title')->toArray());
     }
 
     /**
@@ -5399,7 +5519,6 @@ class TableTest extends TestCase
      *
      * @return void
      */
-    #[WithoutErrorHandler]
     public function testGetBackwardsCompatibility(): void
     {
         $this->deprecated(function (): void {
@@ -5631,7 +5750,7 @@ class TableTest extends TestCase
             ['author_id' => 2, 'title' => 'First Article'],
             function ($article) use (&$callbackExecuted): void {
                 $this->assertInstanceOf(EntityInterface::class, $article);
-                $article->set(['published' => 'N', 'body' => 'New body']);
+                $article->patch(['published' => 'N', 'body' => 'New body']);
                 $callbackExecuted = true;
             },
         );
@@ -5809,6 +5928,27 @@ class TableTest extends TestCase
     }
 
     /**
+     * Test that findOrCreate with array data.
+     */
+    public function testFindOrCreateArrayData(): void
+    {
+        $articles = $this->getTableLocator()->get('Articles');
+
+        $firstArticle = $articles->findOrCreate(['title' => 'Some title'], ['body' => 'Some body']);
+        $this->assertFalse($firstArticle->isNew());
+        $this->assertNotNull($firstArticle->id);
+        $this->assertSame('Some title', $firstArticle->title);
+        $this->assertSame('Some body', $firstArticle->body);
+
+        $secondArticle = $articles->findOrCreate(['title' => 'Some title'], ['body' => 'Different body']);
+        $this->assertFalse($secondArticle->isNew());
+        $this->assertNotNull($secondArticle->id);
+        $this->assertSame('Some title', $secondArticle->title);
+        $this->assertEquals($firstArticle->id, $secondArticle->id);
+        $this->assertSame('Some body', $secondArticle->body);
+    }
+
+    /**
      * Test that creating a table fires the initialize event.
      */
     public function testInitializeEvent(): void
@@ -5880,12 +6020,6 @@ class TableTest extends TestCase
         $data = ['username' => 'larry', 'id' => 3];
         $this->assertNotEmpty($validator->validate($data));
 
-        $data = ['username' => 'larry'];
-        $this->assertNotEmpty($validator->validate($data, false));
-
-        $validator->add('username', 'unique', [
-            'rule' => 'validateUnique', 'provider' => 'table',
-        ]);
         $data = ['username' => 'larry'];
         $this->assertNotEmpty($validator->validate($data, false));
     }
@@ -6275,6 +6409,32 @@ class TableTest extends TestCase
     }
 
     /**
+     * Tests loadInto() with a belongsTo association with a join and contain on the same table
+     */
+    public function testLoadBelongsToDoubleJoin(): void
+    {
+        $table = $this->getTableLocator()->get('Comments');
+        $table->belongsTo('Articles');
+
+        $entity = $table->get(2);
+        $result = $table->loadInto($entity, [
+            'Articles' => function (SelectQuery $q) {
+                return $q->innerJoinWith('Authors', function ($q) {
+                    return $q->where(['Authors.name' => 'mariano']);
+                });
+            },
+            'Articles.Authors',
+        ]);
+
+        $this->assertSame($entity, $result);
+
+        $expected = $table->get(2, contain: ['Articles.Authors']);
+        $this->assertEquals($expected, $entity);
+        $this->assertEquals($expected->article, $entity->article);
+        $this->assertEquals($expected->article->author, $entity->article->author);
+    }
+
+    /**
      * Tests that it is possible to post-load associations for many entities at
      * the same time
      */
@@ -6296,6 +6456,51 @@ class TableTest extends TestCase
             $this->assertEquals($v->site_articles, $result[$k]->site_articles);
             $this->assertEquals($v->articles, $result[$k]->articles);
         }
+    }
+
+    /**
+     * Tests loadInto() with deeply nested associations
+     */
+    public function testLoadIntoNestedAssociations(): void
+    {
+        $table = $this->getTableLocator()->get('Authors');
+
+        $entity = $table->get(1);
+        // This should work without throwing an error about 'includeFields' not being an association
+        $result = $table->loadInto($entity, ['Articles.Tags']);
+        $this->assertSame($entity, $result);
+        $this->assertNotEmpty($result->articles);
+        $this->assertNotEmpty($result->articles[0]->tags);
+
+        $expected = $table->get(1, contain: ['Articles.Tags']);
+        $this->assertEquals($expected->articles, $result->articles);
+        $this->assertEquals($expected->articles[0]->tags, $result->articles[0]->tags);
+    }
+
+    /**
+     * Tests loadInto() multiple times with nested associations - reproduces GitHub issue #16362
+     */
+    public function testLoadIntoMultipleTimesWithNestedAssociations(): void
+    {
+        $table = $this->getTableLocator()->get('Authors');
+
+        // First load some associations
+        $entity = $table->get(1);
+        $entity = $table->loadInto($entity, ['Articles']);
+        $this->assertNotEmpty($entity->articles);
+        $this->assertEmpty($entity->articles[0]->tags);
+
+        // Now load nested associations - this should not throw an error about 'includeFields'
+        $result = $table->loadInto($entity, ['Articles.Tags']);
+        $this->assertSame($entity, $result);
+
+        // Verify the nested associations were loaded correctly
+        $this->assertNotEmpty($result->articles);
+        $firstArticle = $result->articles[0];
+        $this->assertNotNull($firstArticle);
+
+        // Tags should be loaded now
+        $this->assertIsArray($firstArticle->tags);
     }
 
     /**

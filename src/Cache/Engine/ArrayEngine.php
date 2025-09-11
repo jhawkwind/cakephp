@@ -153,16 +153,14 @@ class ArrayEngine extends CacheEngine
      * If the group initial value was not found, then it initializes
      * the group accordingly.
      *
-     * @return list<string>
+     * @return array<string>
      */
     public function groups(): array
     {
         $result = [];
         foreach ($this->_config['groups'] as $group) {
             $key = $this->_config['prefix'] . $group;
-            if (!isset($this->data[$key])) {
-                $this->data[$key] = ['exp' => PHP_INT_MAX, 'val' => 1];
-            }
+            $this->data[$key] ??= ['exp' => PHP_INT_MAX, 'val' => 1];
             $value = $this->data[$key]['val'];
             $result[] = $group . $value;
         }

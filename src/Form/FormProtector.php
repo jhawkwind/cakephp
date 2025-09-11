@@ -42,7 +42,7 @@ class FormProtector
     /**
      * Unlocked fields.
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $unlockedFields = [];
 
@@ -159,7 +159,7 @@ class FormProtector
      * fieldname parts like ['Model', 'field'] is returned.
      *
      * @param string $name The form inputs name attribute.
-     * @return list<string> Array of field name params like ['Model.field'] or
+     * @return array<string> Array of field name params like ['Model.field'] or
      *   ['Model', 'field'] for array fields or empty array if $name is empty.
      */
     protected function getFieldNameArray(string $name): array
@@ -270,8 +270,8 @@ class FormProtector
      * Return hash parts for the token generation
      *
      * @param array<string, array> $formData Form data.
-     * @return array<string, array>
-     * @psalm-return array{fields: array, unlockedFields: array}
+     * @return array<string, array> Contains 'fields' and 'unlockedFields' keys. Additional keys allowed.
+     * @phpstan-return array{fields: array, unlockedFields: array<string>, ...}
      */
     protected function extractHashParts(array $formData): array
     {
@@ -360,7 +360,7 @@ class FormProtector
      * Get the sorted unlocked string
      *
      * @param array $formData Data array
-     * @return list<string>
+     * @return array<string>
      */
     protected function sortedUnlockedFields(array $formData): array
     {
@@ -380,8 +380,8 @@ class FormProtector
      *
      * @param string $url Form URL.
      * @param string $sessionId Session ID.
-     * @return array<string, string> The token data.
-     * @psalm-return array{fields: string, unlocked: string, debug: string}
+     * @return array<string, string> The token data. Contains 'fields', 'unlocked', and 'debug' keys. Additional keys allowed.
+     * @phpstan-return array{fields: string, unlocked: string, debug: string, ...}
      */
     public function buildTokenData(string $url = '', string $sessionId = ''): array
     {
@@ -390,9 +390,14 @@ class FormProtector
 
         $locked = [];
         foreach ($fields as $key => $value) {
-            if (is_numeric($value)) {
+            if ($value === true) {
+                $value = '1';
+            } elseif ($value === false) {
+                $value = '0';
+            } elseif (is_numeric($value)) {
                 $value = (string)$value;
             }
+
             if (!is_int($key)) {
                 $locked[$key] = $value;
                 unset($fields[$key]);
@@ -495,7 +500,7 @@ class FormProtector
      * @param string $stringKeyMessage Message string if tampered found in
      *  data fields indexed by string (protected).
      * @param string $missingMessage Message string if missing field
-     * @return list<string> Messages
+     * @return array<string> Messages
      */
     protected function debugCheckFields(
         array $dataFields,
@@ -522,7 +527,7 @@ class FormProtector
      * @param string $intKeyMessage Message string if unexpected found in data fields indexed by int (not protected)
      * @param string $stringKeyMessage Message string if tampered found in
      *   data fields indexed by string (protected)
-     * @return list<string> Error messages
+     * @return array<string> Error messages
      */
     protected function matchExistingFields(
         array $dataFields,

@@ -197,7 +197,7 @@ class ViewBlock
     /**
      * Get the names of all the existing blocks.
      *
-     * @return list<string> An array containing the blocks.
+     * @return array<string> An array containing the blocks.
      */
     public function keys(): array
     {
@@ -211,10 +211,8 @@ class ViewBlock
      */
     public function active(): ?string
     {
-        end($this->_active);
-
         /** @var string|null */
-        return key($this->_active);
+        return array_key_last($this->_active);
     }
 
     /**

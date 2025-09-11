@@ -40,7 +40,7 @@ class BelongsTo extends Association
     /**
      * Valid strategies for this type of association
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $_validStrategies = [
         self::STRATEGY_JOIN,
@@ -52,11 +52,7 @@ class BelongsTo extends Association
      */
     public function getForeignKey(): array|string|false
     {
-        if (!isset($this->_foreignKey)) {
-            $this->_foreignKey = $this->_modelKey($this->getTarget()->getAlias());
-        }
-
-        return $this->_foreignKey;
+        return $this->_foreignKey ??= $this->_modelKey($this->getTarget()->getAlias());
     }
 
     /**
@@ -147,13 +143,18 @@ class BelongsTo extends Association
             return false;
         }
 
-        /** @var list<string> $foreignKeys */
+        /** @var array<string> $foreignKeys */
         $foreignKeys = (array)$this->getForeignKey();
         $properties = array_combine(
             $foreignKeys,
             $targetEntity->extract((array)$this->getBindingKey()),
         );
-        $entity->set($properties, ['guard' => false]);
+
+        if (method_exists($entity, 'patch')) {
+            $entity = $entity->patch($properties, ['guard' => false]);
+        } else {
+            $entity->set($properties, ['guard' => false]);
+        }
 
         return $entity;
     }

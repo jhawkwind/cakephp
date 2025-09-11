@@ -41,7 +41,7 @@ class TranslateBehaviorEavTest extends TestCase
     /**
      * fixtures
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $fixtures = [
         'core.Articles',
@@ -74,7 +74,7 @@ class TranslateBehaviorEavTest extends TestCase
         parent::tearDownAfterClass();
     }
 
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         I18n::setLocale(I18n::getDefaultLocale());
@@ -140,6 +140,18 @@ class TranslateBehaviorEavTest extends TestCase
         $i18n = $items->getByProperty('_i18n');
 
         $this->assertSame('select', $i18n->getStrategy());
+    }
+
+    public function testComplexLocales(): void
+    {
+        $table = $this->getTableLocator()->get('Articles');
+        $table->addBehavior('Translate', ['fields' => ['title', 'body']]);
+
+        I18n::setLocale('fr@currency=EUR');
+        $this->assertSame('fr', $table->getLocale());
+
+        $table->setLocale('en_US');
+        $this->assertSame('en_US', $table->getLocale());
     }
 
     /**
@@ -495,6 +507,16 @@ class TranslateBehaviorEavTest extends TestCase
 
         $grouped = $results->all()->combine('title', 'body', 'id');
         $this->assertEquals($expected, $grouped->toArray());
+
+        $entity = $table->newEntity(['title' => 'Fourth Title']);
+        $table->save($entity);
+
+        $expected = [[]];
+        $result = $table->find('translations')->where(['Articles.id' => $entity->id])->all();
+        $this->assertEquals($expected, $this->_extractTranslations($result)->toArray());
+
+        $entity = $result->first();
+        $this->assertSame('Fourth Title', $entity->title);
     }
 
     /**
@@ -790,7 +812,7 @@ class TranslateBehaviorEavTest extends TestCase
         $this->assertNotEmpty($entity->author->name);
 
         $expected = $table->get(1, ...['contain' => ['Authors']]);
-        $this->assertEqualsCanonicalizing($expected, $result);
+        $this->assertEqualsCanonicalizing($expected->toArray(), $result->toArray());
         $this->assertNotEmpty($entity->author);
         $this->assertNotEmpty($entity->author->name);
     }
@@ -952,11 +974,15 @@ class TranslateBehaviorEavTest extends TestCase
 
         $table->save($article);
 
-        // Remove the Behavior to unset the content != '' condition
-        $table->removeBehavior('Translate');
-
         $noFra = $table->I18n->find()->where(['locale' => 'fra'])->first();
         $this->assertEmpty($noFra);
+
+        $article = $table->find()->where(['id' => 2])->first();
+
+        $this->assertSame('Second Article', $article->get('title'));
+        $table->patchEntity($article, ['title' => 'Second Article updated']);
+
+        $this->assertNotFalse($table->save($article));
     }
 
     /**
@@ -1203,7 +1229,7 @@ class TranslateBehaviorEavTest extends TestCase
     }
 
     /**
-     * Tests that iterating a resultset twice when using the translations finder
+     * Tests that iterating a result set twice when using the translations finder
      * will not cause any errors nor information loss
      */
     public function testUseCountInFindTranslations(): void
@@ -1234,7 +1260,7 @@ class TranslateBehaviorEavTest extends TestCase
 
         $article = $table->get(1);
         foreach ($translations as $lang => $data) {
-            $article->translation($lang)->set($data, ['guard' => false]);
+            $article->translation($lang)->patch($data, ['guard' => false]);
         }
 
         $table->save($article);
@@ -1467,6 +1493,18 @@ class TranslateBehaviorEavTest extends TestCase
         $entity = $result->first();
         $this->assertSame('Title EN', $entity->title);
         $this->assertSame('Body EN', $entity->body);
+
+        $data = [
+            'title' => 'New title',
+            'author_id' => 1,
+            'published' => 'N',
+            '_translations' => null,
+        ];
+
+        $article = $table->patchEntity($table->newEmptyEntity(), $data);
+        $result = $table->save($article);
+
+        $this->assertNotFalse($result);
     }
 
     /**

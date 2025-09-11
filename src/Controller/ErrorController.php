@@ -30,7 +30,7 @@ class ErrorController extends Controller
      * Get alternate view classes that can be used in
      * content-type negotiation.
      *
-     * @return list<string>
+     * @return array<string>
      */
     public function viewClasses(): array
     {
@@ -42,7 +42,6 @@ class ErrorController extends Controller
      *
      * @param \Cake\Event\EventInterface<\Cake\Controller\Controller> $event Event.
      * @return \Cake\Http\Response|null|void
-     * @phpcsSuppress SlevomatCodingStandard.TypeHints.ReturnTypeHint.MissingNativeTypeHint
      */
     public function beforeRender(EventInterface $event)
     {

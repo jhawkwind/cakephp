@@ -31,6 +31,7 @@ use Cake\Routing\RouteBuilder;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
+use Cake\Utility\Hash;
 use Cake\Utility\Security;
 use Laminas\Diactoros\UploadedFile;
 use LogicException;
@@ -58,7 +59,7 @@ class IntegrationTestTraitTest extends TestCase
     /**
      * Setup method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         static::setAppNamespace();
@@ -722,6 +723,22 @@ class IntegrationTestTraitTest extends TestCase
     }
 
     /**
+     * Test asserting session and flash messages.
+     */
+    public function testFlashAssertionsWithSession(): void
+    {
+        $this->enableRetainFlashMessages();
+        $this->get('/posts/flashWithSession');
+        $this->assertRedirect();
+
+        $this->assertFlashElement('flash/error');
+        $this->assertSession(true, 'test');
+
+        $result = $this->_requestSession->read('Flash.flash');
+        $this->assertSame(['flash/error'], Hash::extract($result, '{n}.element'));
+    }
+
+    /**
      * Test flash assertions stored with enableRememberFlashMessages() even if
      * no view is rendered
      */
@@ -1243,6 +1260,76 @@ class IntegrationTestTraitTest extends TestCase
         $this->_response = $this->_response->withHeader('Location', 'http://localhost/tasks/index');
 
         $this->assertRedirectContains('/tasks/index');
+    }
+
+    /**
+     * Test assertRedirect with relative URL in Location header
+     */
+    public function testAssertRedirectWithRelativeUrl(): void
+    {
+        $this->_response = new Response();
+        // Simulate authentication plugin returning relative URL
+        $this->_response = $this->_response->withHeader('Location', '/get/users/login');
+
+        // Should work with string URL
+        $this->assertRedirect('/get/users/login');
+
+        // Should work with array URL
+        $this->assertRedirect(['controller' => 'Users', 'action' => 'login']);
+    }
+
+    /**
+     * Test assertRedirectEquals with relative URL in Location header
+     */
+    public function testAssertRedirectEqualsWithRelativeUrl(): void
+    {
+        $this->_response = new Response();
+        // Simulate authentication plugin returning relative URL
+        $this->_response = $this->_response->withHeader('Location', '/get/users/login');
+
+        // Should work with string URL
+        $this->assertRedirectEquals('/get/users/login');
+
+        // Should work with array URL
+        $this->assertRedirectEquals(['controller' => 'Users', 'action' => 'login']);
+    }
+
+    /**
+     * Test assertRedirect with named routes and relative URLs
+     */
+    public function testAssertRedirectWithNamedRouteAndRelativeUrl(): void
+    {
+        Router::createRouteBuilder('/')->connect(
+            '/user/signin',
+            ['controller' => 'Users', 'action' => 'login'],
+            ['_name' => 'login:form'],
+        );
+
+        $this->_response = new Response();
+        // Simulate authentication plugin returning relative URL
+        $this->_response = $this->_response->withHeader('Location', '/user/signin');
+
+        // Should work with named route
+        $this->assertRedirect(['_name' => 'login:form']);
+        $this->assertRedirectEquals(['_name' => 'login:form']);
+    }
+
+    /**
+     * Test assertRedirect handles mixed absolute/relative URLs correctly
+     */
+    public function testAssertRedirectMixedUrlFormats(): void
+    {
+        $this->_response = new Response();
+
+        // Test with absolute URL in header, checking with relative path
+        $this->_response = $this->_response->withHeader('Location', 'http://localhost/get/tasks/view/1');
+        $this->assertRedirect('/get/tasks/view/1');
+        $this->assertRedirectEquals('/get/tasks/view/1');
+
+        // Test with relative URL in header, checking with absolute URL
+        $this->_response = $this->_response->withHeader('Location', '/get/tasks/edit/2');
+        $this->assertRedirect('http://localhost/get/tasks/edit/2');
+        $this->assertRedirectEquals('http://localhost/get/tasks/edit/2');
     }
 
     /**

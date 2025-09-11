@@ -62,6 +62,7 @@ class EagerLoader
         'joinType' => 1,
         'strategy' => 1,
         'negateMatch' => 1,
+        'includeFields' => 1,
     ];
 
     /**
@@ -304,7 +305,7 @@ class EagerLoader
                 $repository,
                 $alias,
                 $options,
-                ['root' => null],
+                ['root' => ''],
             );
         }
 
@@ -353,13 +354,22 @@ class EagerLoader
             }
 
             if (is_array($options)) {
-                $options = isset($options['config']) ?
-                    $options['config'] + $options['associations'] :
-                    $options;
-                $options = $this->_reformatContain(
-                    $options,
-                    $pointer[$table] ?? [],
-                );
+                // When options come from asContainArray(), they have 'config' and 'associations' keys
+                // We need to keep them separate to avoid config options being treated as associations
+                if (isset($options['config']) && isset($options['associations'])) {
+                    // Process associations recursively, but keep config separate
+                    $associations = $this->_reformatContain(
+                        $options['associations'],
+                        $pointer[$table] ?? [],
+                    );
+                    // Merge config with associations, ensuring config options stay as options
+                    $options = $options['config'] + $associations;
+                } else {
+                    $options = $this->_reformatContain(
+                        $options,
+                        $pointer[$table] ?? [],
+                    );
+                }
             }
 
             if ($options instanceof Closure) {
@@ -371,11 +381,10 @@ class EagerLoader
             if (isset($options['queryBuilder'], $pointer[$table]['queryBuilder'])) {
                 $first = $pointer[$table]['queryBuilder'];
                 $second = $options['queryBuilder'];
-                $options['queryBuilder'] = fn ($query) => $second($first($query));
+                $options['queryBuilder'] = fn($query) => $second($first($query));
             }
 
             if (!is_array($options)) {
-                /** @psalm-suppress InvalidArrayOffset */
                 $options = [$options => []];
             }
 

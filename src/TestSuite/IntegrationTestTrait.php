@@ -186,7 +186,7 @@ trait IntegrationTestTrait
     /**
      * List of fields that are excluded from field validation.
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $_unlockedFields = [];
 
@@ -201,7 +201,6 @@ trait IntegrationTestTrait
      * Clears the state used for requests.
      *
      * @return void
-     * @psalm-suppress PossiblyNullPropertyAssignmentValue
      */
     #[After]
     public function cleanup(): void
@@ -513,7 +512,8 @@ trait IntegrationTestTrait
             $response = $dispatcher->execute($request);
             $this->_requestSession = $request['session'];
             if ($this->_retainFlashMessages && $this->_flashMessages) {
-                $this->_requestSession->write('Flash', $this->_flashMessages);
+                $_SESSION['Flash'] = $this->_flashMessages;
+                $this->_requestSession->write($_SESSION);
             }
             $this->_response = $response;
         } catch (PHPUnitException | DatabaseException $e) {
@@ -907,7 +907,11 @@ trait IntegrationTestTrait
     }
 
     /**
-     * Asserts that the Location header is correct. Comparison is made against a full URL.
+     * Asserts that the Location header is correct.
+     *
+     * This method normalizes both the expected URL and Location header value to absolute URLs
+     * for comparison. This accommodates differences between authentication plugins and core
+     * framework behavior, where some parts return relative URLs and others return absolute URLs.
      *
      * @param array|string|null $url The URL you expected the client to go to. This
      *   can either be a string URL or an array compatible with Router::url(). Use null to
@@ -925,16 +929,27 @@ trait IntegrationTestTrait
         $this->assertThat(null, new HeaderSet($this->_response, 'Location'), $verboseMessage);
 
         if ($url) {
+            // Normalize both URLs to absolute for comparison
+            $expectedUrl = Router::url($url, true);
+            $actualUrl = Router::url($this->_response->getHeaderLine('Location'), true);
+
+            // Create a response with the normalized URL for proper error messages
+            $tempResponse = $this->_response->withHeader('Location', $actualUrl);
+
             $this->assertThat(
-                Router::url($url, true),
-                new HeaderEquals($this->_response, 'Location'),
+                $expectedUrl,
+                new HeaderEquals($tempResponse, 'Location'),
                 $verboseMessage,
             );
         }
     }
 
     /**
-     * Asserts that the Location header is correct. Comparison is made against exactly the URL provided.
+     * Asserts that the Location header is correct.
+     *
+     * This method normalizes both the expected URL and Location header value to absolute URLs
+     * for comparison. This accommodates differences between authentication plugins and core
+     * framework behavior, where some parts return relative URLs and others return absolute URLs.
      *
      * @param array|string|null $url The URL you expected the client to go to. This
      *   can either be a string URL or an array compatible with Router::url(). Use null to
@@ -952,7 +967,18 @@ trait IntegrationTestTrait
         $this->assertThat(null, new HeaderSet($this->_response, 'Location'), $verboseMessage);
 
         if ($url) {
-            $this->assertThat(Router::url($url), new HeaderEquals($this->_response, 'Location'), $verboseMessage);
+            // Normalize both URLs to absolute for comparison
+            $expectedUrl = Router::url($url, true);
+            $actualUrl = Router::url($this->_response->getHeaderLine('Location'), true);
+
+            // Create a response with the normalized URL for proper error messages
+            $tempResponse = $this->_response->withHeader('Location', $actualUrl);
+
+            $this->assertThat(
+                $expectedUrl,
+                new HeaderEquals($tempResponse, 'Location'),
+                $verboseMessage,
+            );
         }
     }
 
@@ -1511,7 +1537,6 @@ trait IntegrationTestTrait
      */
     protected function getSession(): TestSession
     {
-        /** @psalm-suppress InvalidScalarArgument */
         return new TestSession($_SESSION);
     }
 

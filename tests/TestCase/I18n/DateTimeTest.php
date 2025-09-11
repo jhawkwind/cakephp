@@ -38,7 +38,7 @@ class DateTimeTest extends TestCase
     /**
      * setUp method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         $this->now = DateTime::getTestNow();
@@ -47,7 +47,7 @@ class DateTimeTest extends TestCase
     /**
      * tearDown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         DateTime::setTestNow($this->now);
@@ -425,7 +425,7 @@ class DateTimeTest extends TestCase
     public function testI18nFormatUsingSystemLocale(): void
     {
         $time = new DateTime(1556864870);
-        I18n::setLocale('ar');
+        I18n::setLocale('ar-u-nu-arab');
         $this->assertSame('٢٠١٩-٠٥-٠٣', $time->i18nFormat('yyyy-MM-dd'));
 
         I18n::setLocale('en');

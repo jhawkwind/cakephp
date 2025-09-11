@@ -48,7 +48,7 @@ class DecimalTypeTest extends TestCase
     /**
      * Setup
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         $this->type = new DecimalType();
@@ -61,7 +61,7 @@ class DecimalTypeTest extends TestCase
     /**
      * tearDown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         I18n::setLocale(I18n::getDefaultLocale());
@@ -167,7 +167,7 @@ class DecimalTypeTest extends TestCase
         $result = $this->type->marshal('2.51');
         $this->assertSame('2.51', $result);
 
-        // allow custom decimal format (@see https://github.com/cakephp/cakephp/issues/12800)
+        // allow custom decimal format (https://github.com/cakephp/cakephp/issues/12800)
         $result = $this->type->marshal('1 230,73');
         $this->assertSame('1 230,73', $result);
 

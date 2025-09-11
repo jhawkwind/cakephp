@@ -41,7 +41,7 @@ class PluginLoadCommandTest extends TestCase
     /**
      * setUp method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -54,7 +54,7 @@ class PluginLoadCommandTest extends TestCase
     /**
      * tearDown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
 
@@ -84,7 +84,7 @@ class PluginLoadCommandTest extends TestCase
         Router::reload();
         $this->exec('plugin load TestPluginTwo --no-bootstrap --no-console --no-middleware --no-routes --no-services');
         $this->assertExitCode(CommandInterface::CODE_SUCCESS);
-        Plugin::getCollection()->remove('TestPlugin');
+        Plugin::getCollection()->remove('TestPluginTwo');
 
         // Needed to not have duplicate named routes
         Router::reload();

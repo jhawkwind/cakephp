@@ -54,7 +54,7 @@ class ErrorHandlerMiddlewareTest extends TestCase
     /**
      * setup
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -70,7 +70,7 @@ class ErrorHandlerMiddlewareTest extends TestCase
     /**
      * Teardown
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         Log::drop('error_test');
@@ -350,7 +350,7 @@ class ErrorHandlerMiddlewareTest extends TestCase
         EventManager::instance()->on(
             'Exception.beforeRender',
             function (EventInterface $event, Throwable $e, ServerRequestInterface $req) {
-                return 'Response string from event';
+                $event->setResult('Response string from event');
             },
         );
 

@@ -36,7 +36,7 @@ class I18nExtractCommandTest extends TestCase
     /**
      * setUp method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         $this->setAppNamespace();
@@ -50,7 +50,7 @@ class I18nExtractCommandTest extends TestCase
     /**
      * tearDown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
 
@@ -266,6 +266,8 @@ class I18nExtractCommandTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('#Pages#', $result);
         $this->assertMatchesRegularExpression('/translate\.php:\d+/', $result);
         $this->assertStringContainsString('This is a translatable string', $result);
+
+        Configure::delete('Plugins.autoload');
     }
 
     /**

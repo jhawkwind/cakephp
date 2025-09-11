@@ -35,7 +35,7 @@ class RouteTest extends TestCase
     /**
      * setUp method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
         Configure::write('Routing', ['prefixes' => []]);
@@ -1039,11 +1039,7 @@ class RouteTest extends TestCase
      */
     public function testParseRequestDelegates(): void
     {
-        $route = Mockery::mock(Route::class)->makePartial();
-        $route->shouldReceive('parse')
-            ->once()
-            ->with('/forward', 'GET')
-            ->andReturn(['works!']);
+        $route = Mockery::spy(Route::class)->makePartial();
 
         $request = new ServerRequest([
             'environment' => [
@@ -1051,8 +1047,11 @@ class RouteTest extends TestCase
                 'REQUEST_URI' => '/forward',
             ],
         ]);
-        $result = $route->parseRequest($request);
-        $this->assertNotEmpty($result);
+        $route->parseRequest($request);
+
+        $route->shouldHaveReceived('parse')
+            ->with('/forward', 'GET')
+            ->once();
     }
 
     /**
@@ -1408,6 +1407,26 @@ class RouteTest extends TestCase
 
         $route = new Route('/test/{action}', ['controller' => 'Thing']);
         $this->assertNull($route->match(['action' => null, 'controller' => 'Thing']));
+    }
+
+    /**
+     * Test matching with null prefix in defaults
+     */
+    public function testMatchWithNullPrefix(): void
+    {
+        // Test that a route with null prefix can match URLs without prefix
+        $route = new Route('/login', ['controller' => 'Users', 'action' => 'login', 'prefix' => null]);
+        $result = $route->match(['controller' => 'Users', 'action' => 'login']);
+        $this->assertSame('/login', $result);
+
+        // Test that null prefix in defaults should match when URL has a prefix key
+        $route = new Route('/logout', ['controller' => 'Users', 'action' => 'logout', 'prefix' => null]);
+        $result = $route->match(['controller' => 'Users', 'action' => 'logout', 'prefix' => null]);
+        $this->assertSame('/logout', $result);
+
+        $route = new Route('/logout', ['controller' => 'Users', 'action' => 'logout', 'prefix' => null]);
+        $result = $route->match(['controller' => 'Users', 'action' => 'logout', 'prefix' => 'admin']);
+        $this->assertNull($result);
     }
 
     /**

@@ -23,6 +23,7 @@ use Cake\Core\Configure;
 use Cake\Core\Exception\CakeException;
 use Cake\Database\Type\EnumType;
 use Cake\Form\Form;
+use Cake\Form\FormProtector;
 use Cake\Http\ServerRequest;
 use Cake\I18n\Date;
 use Cake\I18n\DateTime;
@@ -42,6 +43,8 @@ use Cake\View\View;
 use Cake\View\Widget\LabelWidget;
 use Cake\View\Widget\WidgetInterface;
 use Cake\View\Widget\WidgetLocator;
+use DOMDocument;
+use DOMXPath;
 use InvalidArgumentException;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -66,7 +69,7 @@ class FormHelperTest extends TestCase
     /**
      * Fixtures to be used
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $fixtures = ['core.Articles', 'core.Comments'];
 
@@ -93,7 +96,7 @@ class FormHelperTest extends TestCase
     /**
      * setUp method
      */
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -142,7 +145,7 @@ class FormHelperTest extends TestCase
     /**
      * tearDown method
      */
-    public function tearDown(): void
+    protected function tearDown(): void
     {
         parent::tearDown();
         unset($this->Form, $this->View);
@@ -218,15 +221,15 @@ class FormHelperTest extends TestCase
      */
     public function testAddWidgetAndRenderWidget(): void
     {
-        $data = ['val' => 1];
-        $widget = Mockery::mock(WidgetInterface::class);
-        $widget->shouldReceive('render')
-            ->withSomeOfArgs($data)
-            ->once()
-            ->andReturn('HTML');
+        $widget = Mockery::spy(WidgetInterface::class)->makePartial();
         $this->Form->addWidget('test', $widget);
-        $result = $this->Form->widget('test', $data);
-        $this->assertSame('HTML', $result);
+        $this->Form->widget('test', ['val' => 1]);
+
+        $widget->shouldHaveReceived('render')
+            ->withArgs(function (array $data) {
+                return $data === ['val' => 1];
+            })
+            ->once();
     }
 
     /**
@@ -239,20 +242,20 @@ class FormHelperTest extends TestCase
             'unlockedFields' => [],
         ]));
 
-        $data = ['val' => 1, 'name' => 'test'];
-        $widget = Mockery::mock(WidgetInterface::class);
-        $widget->shouldReceive('render')
-            ->withSomeOfArgs($data)
-            ->once()
-            ->andReturn('HTML');
-        $widget->shouldReceive('secureFields')
-            ->with($data)
-            ->once()
-            ->andReturn(['test']);
+        $widget = Mockery::spy(WidgetInterface::class);
+
         $this->Form->addWidget('test', $widget);
         $this->Form->create();
-        $result = $this->Form->widget('test', ['val' => 1, 'name' => 'test', 'secure' => true]);
-        $this->assertSame('HTML', $result);
+        $this->Form->widget('test', ['val' => 1, 'name' => 'test', 'secure' => true]);
+
+        $widget->shouldHaveReceived('render')
+            ->withArgs(function (array $data) {
+                return $data === ['val' => 1, 'name' => 'test'];
+            })
+            ->once();
+        $widget->shouldHaveReceived('secureFields')
+            ->with(['val' => 1, 'name' => 'test'])
+            ->once();
     }
 
     /**
@@ -815,6 +818,9 @@ class FormHelperTest extends TestCase
             ],
         ];
         $this->assertHtml($expected, $result);
+
+        $result = $this->Form->create(null, ['url' => ['_path' => 'Articles::myAction']]);
+        $this->assertHtml($expected, $result);
     }
 
     /**
@@ -983,7 +989,10 @@ class FormHelperTest extends TestCase
     {
         $this->View->setRequest($this->View->getRequest()->withAttribute('csrfToken', 'testKey'));
         $encoding = strtolower(Configure::read('App.encoding'));
-        $result = $this->Form->create($this->article, [
+
+        $article = new Article();
+        $article->requireFieldPresence(true);
+        $result = $this->Form->create($article, [
             'url' => '/articles/publish',
         ]);
         $expected = [
@@ -2230,6 +2239,53 @@ class FormHelperTest extends TestCase
     }
 
     /**
+     * Test that postLink() with additional data generates a valid secure token.
+     */
+    public function testFormSecuredControlPostLink(): void
+    {
+        $this->View->setRequest($this->View->getRequest()
+            ->withAttribute('formTokenData', [])
+            ->withAttribute('csrfToken', 'testKey'));
+
+        $options = [
+            'data' => ['string' => 'value', 'boolean' => true, 'falsey' => false],
+        ];
+        $result = $this->Form->postLink('title', '/articles/add', $options);
+
+        // Because postLink() creates a standalone form protector
+        // we can't inspect its internal state at all.
+        // Use the generated HTML to extract token data so we
+        // can craft a request.
+        $dom = new DOMDocument();
+        $dom->loadHTML($result);
+        $xpath = new DOMXPath($dom);
+        $inputs = $xpath->query("//form//input[contains(@name,'_Token')]");
+        $token = [];
+        foreach ($inputs as $item) {
+            $name = $item->getAttribute('name');
+            [, $field] = explode('[', $name);
+            $field = trim($field, ']');
+            $token[$field] = $item->getAttribute('value');
+        }
+
+        // Create a simulated request
+        // boolean is `'1'` because that is what the request
+        // same with falsey being '0'
+        // data will be.
+        $data = [
+            'boolean' => '1',
+            'falsey' => '0',
+            'string' => 'value',
+            '_Token' => $token,
+        ];
+        $formProtector = new FormProtector([]);
+        $this->assertTrue(
+            $formProtector->validate($data, '/articles/add', 'cli'),
+            $formProtector->getError() ?? 'no formprotector->getError',
+        );
+    }
+
+    /**
      * testUnlockFieldAddsToList method
      *
      * Test disableField.
@@ -2420,6 +2476,27 @@ class FormHelperTest extends TestCase
         ];
         $this->assertHtml($expected, $result);
 
+        $result = $this->Form->control('Article.title', ['templates' => ['errorClass' => 'danger']]);
+        $expected = [
+            'div' => ['class' => 'input text error'],
+            'label' => ['for' => 'article-title'],
+            'Title',
+            '/label',
+            'input' => [
+                'type' => 'text',
+                'name' => 'Article[title]',
+                'id' => 'article-title',
+                'class' => 'danger',
+                'aria-invalid' => 'true',
+                'aria-describedby' => 'article-title-error',
+            ],
+            ['div' => ['class' => 'error-message', 'id' => 'article-title-error']],
+            'error message',
+            '/div',
+            '/div',
+        ];
+        $this->assertHtml($expected, $result);
+
         $result = $this->Form->control('Article.user_id', [
             'type' => 'select',
             'options' => ['1' => 'One', '2' => 'Two'],
@@ -2535,6 +2612,43 @@ class FormHelperTest extends TestCase
             '/div',
         ];
         $this->assertHtml($expected, $result);
+    }
+
+    /**
+     * @deprecated
+     */
+    public function testWarningForDeprecatedErrorClassConfig(): void
+    {
+        $this->Form->setConfig('errorClass', 'danger');
+        $this->article['errors'] = [
+            'Article' => [
+                'title' => 'error message',
+            ],
+        ];
+        $this->Form->create($this->article);
+
+        $this->deprecated(function (): void {
+            $result = $this->Form->control('Article.title');
+            $expected = [
+                'div' => ['class' => 'input text error'],
+                'label' => ['for' => 'article-title'],
+                'Title',
+                '/label',
+                'input' => [
+                    'type' => 'text',
+                    'name' => 'Article[title]',
+                    'id' => 'article-title',
+                    'class' => 'danger',
+                    'aria-invalid' => 'true',
+                    'aria-describedby' => 'article-title-error',
+                ],
+                ['div' => ['class' => 'error-message', 'id' => 'article-title-error']],
+                'error message',
+                '/div',
+                '/div',
+            ];
+            $this->assertHtml($expected, $result);
+        });
     }
 
     /**
@@ -2815,6 +2929,17 @@ class FormHelperTest extends TestCase
         $this->assertHtml($expected, $result);
     }
 
+    public function testControlEntityWithRequirePresence(): void
+    {
+        $article = new Article();
+        $article->requireFieldPresence(true);
+        $this->Form->create($article);
+        $this->Form->control('title');
+
+        // We only need to check that Cake\Datasource\Exception\MissingPropertyException is not thrown
+        $this->expectNotToPerformAssertions();
+    }
+
     /**
      * testControlCustomization method
      *
@@ -2826,9 +2951,14 @@ class FormHelperTest extends TestCase
             'className' => ContactsTable::class,
         ]);
         $this->Form->create([], ['context' => ['table' => 'Contacts']]);
-        $result = $this->Form->control('Contact.email', ['id' => 'custom']);
+        $result = $this->Form->control('Contact.email', [
+            'id' => 'custom',
+            'templates' => [
+                'containerClass' => 'ic',
+            ],
+        ]);
         $expected = [
-            'div' => ['class' => 'input email'],
+            'div' => ['class' => 'ic email'],
             'label' => ['for' => 'custom'],
             'Email',
             '/label',
@@ -3049,13 +3179,16 @@ class FormHelperTest extends TestCase
 
         $entity->setError('field', ['maxLength'], true);
         $result = $this->Form->control('field', [
+            'templates' => [
+                'containerClass' => 'input-container',
+            ],
             'error' => [
                 'minLength' => 'Le login doit contenir au moins 2 caractères',
                 'maxLength' => 'login too large',
             ],
         ]);
         $expected = [
-            'div' => ['class' => 'input text error'],
+            'div' => ['class' => 'input-container text error'],
             'label' => ['for' => 'field'],
             'Field',
             '/label',
@@ -3720,10 +3853,10 @@ class FormHelperTest extends TestCase
 
         $articlesTable->getSchema()->setColumnType(
             'published',
-            EnumType::from(ArticleStatusLabel::class),
+            EnumType::from(ArticleStatusLabelInterface::class),
         );
+
         $this->Form->create($articlesTable->newEmptyEntity());
-        $result = $this->Form->control('published');
         $expected = [
             'div' => ['class' => 'input select'],
             'label' => ['for' => 'published'],
@@ -3739,14 +3872,6 @@ class FormHelperTest extends TestCase
             '/select',
             '/div',
         ];
-        $this->assertHtml($expected, $result);
-
-        $articlesTable->getSchema()->setColumnType(
-            'published',
-            EnumType::from(ArticleStatusLabelInterface::class),
-        );
-
-        $this->Form->create($articlesTable->newEmptyEntity());
         $result = $this->Form->control('published');
         $this->assertHtml($expected, $result);
 
@@ -3781,6 +3906,38 @@ class FormHelperTest extends TestCase
             '/div',
         ];
         $this->assertHtml($expected, $result);
+    }
+
+    /**
+     * @deprecated
+     */
+    public function testEnumOptionsDeprecationMessage(): void
+    {
+        $this->deprecated(function (): void {
+            $articlesTable = $this->getTableLocator()->get('Articles');
+            $articlesTable->getSchema()->setColumnType(
+                'published',
+                EnumType::from(ArticleStatusLabel::class),
+            );
+            $this->Form->create($articlesTable->newEmptyEntity());
+            $result = $this->Form->control('published');
+            $expected = [
+                'div' => ['class' => 'input select'],
+                'label' => ['for' => 'published'],
+                'Published',
+                '/label',
+                'select' => ['name' => 'published', 'id' => 'published'],
+                ['option' => ['value' => 'Y']],
+                'Is Published',
+                '/option',
+                ['option' => ['value' => 'N', 'selected' => 'selected']],
+                'Is Unpublished',
+                '/option',
+                '/select',
+                '/div',
+            ];
+            $this->assertHtml($expected, $result);
+        });
     }
 
     /**
@@ -6937,7 +7094,7 @@ class FormHelperTest extends TestCase
             ],
             'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'POST'],
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -6952,7 +7109,7 @@ class FormHelperTest extends TestCase
             ],
             'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'DELETE'],
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -6971,7 +7128,7 @@ class FormHelperTest extends TestCase
             ],
             'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'POST'],
             '/form',
-            'a' => ['class' => 'btn btn-danger', 'href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['class' => 'btn btn-danger', 'href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -6996,7 +7153,7 @@ class FormHelperTest extends TestCase
             'a' => [
                 'href' => '#',
                 'data-confirm-message' => 'Confirm?',
-                'onclick' => 'preg:/if \(confirm\(this.dataset.confirmMessage\)\) \{ document\.post_\w+\.submit\(\); \} event\.returnValue = false; return false;/',
+                'onclick' => 'preg:/if \(confirm\(this.dataset.confirmMessage\)\) \{ document\.post_\w+\.requestSubmit\(\); \} event\.returnValue = false; return false;/',
             ],
             'Delete',
             '/a',
@@ -7018,7 +7175,7 @@ class FormHelperTest extends TestCase
             'a' => [
                 'href' => '#',
                 'data-confirm-message' => "&#039;Confirm&#039;\nthis &quot;deletion&quot;?",
-                'onclick' => "preg:/if \(confirm\(this.dataset.confirmMessage\)\) \{ document\.post_\w+\.submit\(\); \} event\.returnValue = false; return false;/",
+                'onclick' => "preg:/if \(confirm\(this.dataset.confirmMessage\)\) \{ document\.post_\w+\.requestSubmit\(\); \} event\.returnValue = false; return false;/",
             ],
             'Delete',
             '/a',
@@ -7073,7 +7230,7 @@ class FormHelperTest extends TestCase
             'script' => [
                 'nonce' => 'i-am-nonce',
             ],
-            'preg:/document\.getElementById\("link\-post\-\w+"\)\.addEventListener\("click", function\(event\) { if \(confirm\(this\.dataset\.confirmMessage\)\) \{ document\.post_\w+\.submit\(\); \} event\.returnValue = false; return false; }\);/',
+            'preg:/document\.getElementById\("link\-post\-\w+"\)\.addEventListener\("click", function\(event\) { if \(confirm\(this\.dataset\.confirmMessage\)\) \{ document\.post_\w+\.requestSubmit\(\); \} event\.returnValue = false; return false; }\);/',
             '/script',
         ];
         $this->assertHtml($expected, $result);
@@ -7101,7 +7258,7 @@ class FormHelperTest extends TestCase
             'script' => [
                 'nonce' => 'i-am-nonce',
             ],
-            'preg:/document\.getElementById\("link\-post\-\w+"\)\.addEventListener\("click", function\(event\) { if \(confirm\(this\.dataset\.confirmMessage\)\) \{ document\.post_\w+\.submit\(\); \} event\.returnValue = false; return false; }\);/',
+            'preg:/document\.getElementById\("link\-post\-\w+"\)\.addEventListener\("click", function\(event\) { if \(confirm\(this\.dataset\.confirmMessage\)\) \{ document\.post_\w+\.requestSubmit\(\); \} event\.returnValue = false; return false; }\);/',
             '/script',
         ];
         $this->assertHtml($expected, $result);
@@ -7128,7 +7285,7 @@ class FormHelperTest extends TestCase
             ],
             'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'POST'],
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7196,7 +7353,7 @@ class FormHelperTest extends TestCase
             ]],
             '/div',
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7259,7 +7416,7 @@ class FormHelperTest extends TestCase
             ['input' => ['type' => 'hidden', 'name' => '_Token[unlocked]', 'value' => '']],
             '/div',
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7322,7 +7479,7 @@ class FormHelperTest extends TestCase
             ]],
             '/div',
             '/form',
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7338,7 +7495,7 @@ class FormHelperTest extends TestCase
     {
         $result = $this->Form->postLink('Delete', '/posts/delete/1', ['block' => true]);
         $expected = [
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7361,7 +7518,7 @@ class FormHelperTest extends TestCase
             ['block' => true, 'method' => 'DELETE'],
         );
         $expected = [
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7388,7 +7545,7 @@ class FormHelperTest extends TestCase
 
         $result = $this->Form->postLink('Delete', '/posts/delete/1', ['block' => 'foobar']);
         $expected = [
-            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.submit\(\); event\.returnValue = false; return false;/'],
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
             'Delete',
             '/a',
         ];
@@ -7402,6 +7559,66 @@ class FormHelperTest extends TestCase
             ],
             'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'POST'],
             '/form',
+        ];
+        $this->assertHtml($expected, $result);
+
+        $this->Form->setConfig('defaultPostLinkBlock', 'foobaz');
+        $result = $this->Form->postLink('Delete', '/posts/delete/4');
+        $expected = [
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
+            'Delete',
+            '/a',
+        ];
+        $this->assertHtml($expected, $result);
+
+        $result = $this->View->fetch('foobaz');
+        $expected = [
+            'form' => [
+                'method' => 'post', 'action' => '/posts/delete/4',
+                'name' => 'preg:/post_\w+/', 'style' => 'display:none;',
+            ],
+            'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'POST'],
+            '/form',
+        ];
+        $this->assertHtml($expected, $result);
+
+        $this->Form->setConfig('defaultPostLinkBlock', null);
+    }
+
+    /**
+     * Tests deleteLink() method
+     */
+    public function testDeleteLink(): void
+    {
+        $result = $this->Form->deleteLink('Delete', '/posts/delete/1');
+        $expected = [
+            'form' => [
+                'method' => 'post', 'action' => '/posts/delete/1',
+                'name' => 'preg:/post_\w+/', 'style' => 'display:none;',
+            ],
+            'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'DELETE'],
+            '/form',
+            'a' => ['href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
+            'Delete',
+            '/a',
+        ];
+        $this->assertHtml($expected, $result);
+
+        $result = $this->Form->deleteLink(
+            'Delete',
+            '/posts/delete/1',
+            ['target' => '_blank', 'class' => 'btn btn-danger'],
+        );
+        $expected = [
+            'form' => [
+                'method' => 'post', 'target' => '_blank', 'action' => '/posts/delete/1',
+                'name' => 'preg:/post_\w+/', 'style' => 'display:none;',
+            ],
+            'input' => ['type' => 'hidden', 'name' => '_method', 'value' => 'DELETE'],
+            '/form',
+            'a' => ['class' => 'btn btn-danger', 'href' => '#', 'onclick' => 'preg:/document\.post_\w+\.requestSubmit\(\); event\.returnValue = false; return false;/'],
+            'Delete',
+            '/a',
         ];
         $this->assertHtml($expected, $result);
     }

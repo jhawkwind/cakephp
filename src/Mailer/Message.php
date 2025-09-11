@@ -25,6 +25,7 @@ use Closure;
 use InvalidArgumentException;
 use JsonSerializable;
 use Psr\Http\Message\UploadedFileInterface;
+use RuntimeException;
 use SimpleXMLElement;
 use function Cake\Core\env;
 
@@ -197,7 +198,7 @@ class Message implements JsonSerializable
     /**
      * Available formats to be sent.
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $emailFormatAvailable = [self::MESSAGE_TEXT, self::MESSAGE_HTML, self::MESSAGE_BOTH];
 
@@ -234,7 +235,7 @@ class Message implements JsonSerializable
     /**
      * Available encoding to be set for transfer.
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $transferEncodingAvailable = [
         '7bit',
@@ -277,7 +278,7 @@ class Message implements JsonSerializable
     /**
      * 8Bit character sets
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $charset8bit = ['UTF-8', 'SHIFT_JIS'];
 
@@ -294,7 +295,7 @@ class Message implements JsonSerializable
      * Regex for email validation
      *
      * If null, filter_var() will be used. Use the emailPattern() method
-     * to set a custom pattern.'
+     * to set a custom pattern.
      *
      * @var string|null
      */
@@ -303,7 +304,7 @@ class Message implements JsonSerializable
     /**
      * Properties that could be serialized
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $serializableProperties = [
         'to', 'from', 'sender', 'replyTo', 'cc', 'bcc', 'subject',
@@ -925,9 +926,7 @@ class Message implements JsonSerializable
         }
 
         $headers += $this->headers;
-        if (!isset($headers['Date'])) {
-            $headers['Date'] = date(DATE_RFC2822);
-        }
+        $headers['Date'] ??= date(DATE_RFC2822);
         if ($this->messageId !== false) {
             if ($this->messageId === true) {
                 $this->messageId = '<' . str_replace('-', '', Text::uuid()) . '@' . $this->domain . '>';
@@ -1125,13 +1124,7 @@ class Message implements JsonSerializable
      *
      * Attachments can be defined in a few forms depending on how much control you need:
      *
-     * Attach a single file:
-     *
-     * ```
-     * $this->setAttachments('path/to/file');
-     * ```
-     *
-     * Attach a file with a different filename:
+     * Attach a file:
      *
      * ```
      * $this->setAttachments(['custom_name.txt' => 'path/to/file.txt']);
@@ -1213,9 +1206,8 @@ class Message implements JsonSerializable
             ) {
                 $fileInfo['mimetype'] = mime_content_type($fileInfo['file']);
             }
-            if (!isset($fileInfo['mimetype'])) {
-                $fileInfo['mimetype'] = 'application/octet-stream';
-            }
+            $fileInfo['mimetype'] ??= 'application/octet-stream';
+
             $attach[$name] = $fileInfo;
         }
         $this->attachments = $attach;
@@ -1299,7 +1291,7 @@ class Message implements JsonSerializable
     /**
      * Generate full message.
      *
-     * @return list<string>
+     * @return array<string>
      */
     protected function generateMessage(): array
     {
@@ -1393,7 +1385,7 @@ class Message implements JsonSerializable
      * Attach non-embedded files by adding file contents inside boundaries.
      *
      * @param string|null $boundary Boundary to use. If null, will default to $this->boundary
-     * @return list<string> An array of lines to add to the message
+     * @return array<string> An array of lines to add to the message
      */
     protected function attachFiles(?string $boundary = null): array
     {
@@ -1430,7 +1422,7 @@ class Message implements JsonSerializable
      * Attach inline/embedded files to the message.
      *
      * @param string|null $boundary Boundary to use. If null, will default to $this->boundary
-     * @return list<string> An array of lines to add to the message
+     * @return array<string> An array of lines to add to the message
      */
     protected function attachInlineFiles(?string $boundary = null): array
     {
@@ -1599,10 +1591,20 @@ class Message implements JsonSerializable
         }
 
         if ($this->appCharset === null) {
-            return mb_convert_encoding($text, $charset);
+            $encoded = mb_convert_encoding($text, $charset);
+            if ($encoded === false) {
+                throw new RuntimeException('mb_convert_encoding failed.');
+            }
+
+            return $encoded;
         }
 
-        return mb_convert_encoding($text, $charset, $this->appCharset);
+        $encoded = mb_convert_encoding($text, $charset, $this->appCharset);
+        if ($encoded === false) {
+            throw new RuntimeException('mb_convert_encoding failed.');
+        }
+
+        return $encoded;
     }
 
     /**
@@ -1610,7 +1612,7 @@ class Message implements JsonSerializable
      *
      * @param string|null $message Message to wrap
      * @param int $wrapLength The line length
-     * @return list<string> Wrapped message
+     * @return array<string> Wrapped message
      */
     protected function wrap(?string $message = null, int $wrapLength = self::LINE_LENGTH_MUST): array
     {

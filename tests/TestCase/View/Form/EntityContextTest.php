@@ -38,7 +38,7 @@ class EntityContextTest extends TestCase
     /**
      * Fixtures to use.
      *
-     * @var list<string>
+     * @var array<string>
      */
     protected array $fixtures = ['core.Articles', 'core.Comments', 'core.Tags', 'core.ArticlesTags'];
 
@@ -428,6 +428,7 @@ class EntityContextTest extends TestCase
         $result = $context->val('body');
         $this->assertEquals($row->body, $result);
 
+        $row->requireFieldPresence(true);
         $result = $context->val('nope');
         $this->assertNull($result);
     }
